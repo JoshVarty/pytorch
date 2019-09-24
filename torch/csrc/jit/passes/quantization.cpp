@@ -25,7 +25,7 @@ void findValuesInPattern(
   std::unordered_map<std::string, Value*> vmap;
   script::parseIR(pattern, &pattern_graph, vmap);
 
-  auto matches = findPatternMatches(pattern_graph, graph);
+  const auto& matches = findPatternMatches(pattern_graph, graph);
   for (const auto& match : matches) {
     auto output_value = vmap.at("output");
     TORCH_INTERNAL_ASSERT(
@@ -874,7 +874,7 @@ graph(%self, %scale, %zero_point, %dtype):
   script::parseIR(pattern, &pattern_graph, vmap);
   auto method = module.get_method(method_name);
   auto graph = method.graph();
-  auto matches = findPatternMatches(pattern_graph, *graph);
+  const auto& matches = findPatternMatches(pattern_graph, *graph);
   // Extra filter on scale/zero_point/dtype to make sure they are Constant
   auto filter = [](const Match& match,
                    const std::unordered_map<std::string, Value*>& vmap) {
@@ -910,5 +910,81 @@ graph(%self, %scale, %zero_point, %dtype):
   rewriter.RegisterRewritePattern(pattern, replacement);
   rewriter.runOnGraph(graph, filter);
 }
+
+void FoldPrepackedWeightIntoModule(
+    script::Module& module,
+    const std::string& method_name,
+    const script::Module& wrapper_module) {
+  auto method = module.get_method(method_name);
+  auto graph = method.graph();
+  // Recursively fold prepack in all methods in the call hierarchy
+  std::stack<Block*> blocks_to_visit;
+  blocks_to_visit.push(graph->block());
+  while (!blocks_to_visit.empty()) {
+    Block* b = blocks_to_visit.top();
+    blocks_to_visit.pop();
+    for (Node* n : b->nodes()) {
+      if (n->kind() == prim::CallMethod) {
+        auto module_instance = n->inputs()[0];
+        auto module_method_name = n->s(attr::name);
+        script::Module callee_module = module;
+        if (module_instance->node()->kind() == prim::GetAttr) {
+          auto child_module_name = module_instance->node()->s(attr::name);
+          auto child_module = module.find_module(child_module_name);
+          TORCH_INTERNAL_ASSERT(
+              child_module,
+              "Child module " + child_module_name + " does not exist");
+          callee_module = child_module.value();
+        } else {
+          TORCH_INTERNAL_ASSERT(
+              module_instance == graph->inputs()[0],
+              "We only support call method either on %self"
+              "or child instance in insert_observers_pass right now");
+        }
+        FoldPrepackedWeightIntoModule(callee_module, method_name, wrapper_module);
+      }
+      for (Block* subblock : n->blocks()) {
+        blocks_to_visit.push(subblock);
+      }
+    }
+  }
+
+  const std::string pattern = R"(
+graph(%self):
+   %b = prim::GetAttr[name="bias"](%self)
+   %w_quant = prim::GetAttr[name="_quantized_weight"](%self)
+   %w_quant_t = aten::t(%w_quant)
+   %packed_params = quantized::linear_prepack(%w_quant_t, %b)
+   return (%packed_params))";
+  Graph pattern_graph;
+  std::unordered_map<std::string, Value*> vmap;
+  script::parseIR(pattern, &pattern_graph, vmap);
+  const auto& matches = findPatternMatches(pattern_graph, *graph);
+  TORCH_CHECK(
+      matches.size() <= 1, "We only support at most one match right now");
+  for (const auto& match : matches) {
+    auto w_quant_t = module.get_attribute("_quantized_weight").toTensor();
+    auto b = module.get_parameter("bias").variable_data();
+    auto wrapper = wrapper_module.clone();
+    auto set_weight_bias = wrapper.get_method("set_weight_bias");
+    set_weight_bias(std::vector<IValue>{IValue(w_quant_t), IValue(b)});
+    // TODO: we need to make sure this name is unique
+    module.register_module(
+        "_packed_linear_weight_bias",
+        wrapper
+    );
+  }
+
+  std::string replacement = R"(
+graph(%self):
+   %m = prim::GetAttr[name="_packed_linear_weight_bias"](%self)
+   %packed_params = prim::GetAttr[name="_packed_params"](%m)
+   return (%packed_params))";
+
+  SubgraphRewriter rewriter;
+  rewriter.RegisterRewritePattern(pattern, replacement);
+  rewriter.runOnGraph(graph);
+}
+
 } // namespace jit
 } // namespace torch
