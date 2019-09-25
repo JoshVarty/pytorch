@@ -17,7 +17,7 @@ void ReflectionPadImpl<D, Derived>::reset() {}
 template <size_t D, typename Derived>
 void ReflectionPadImpl<D, Derived>::pretty_print(std::ostream& stream) const {
   stream << "torch::nn::ReflectionPad" << D << "d"
-         << "padding=" << options.padding() << ")";
+         << "(padding=" << options.padding() << ")";
 }
 
 Tensor ReflectionPad1dImpl::forward(const Tensor& input) {
