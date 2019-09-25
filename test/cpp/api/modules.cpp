@@ -95,6 +95,25 @@ TEST_F(ModulesTest, Conv3d) {
   ASSERT_TRUE(model->weight.grad().numel() == 3 * 2 * 3 * 3 * 3);
 }
 
+
+TEST_F(ModulesTest, ReflectionPad1d) {
+  ReflectionPad1d model(ReflectionPad1dOptions(2));
+
+  auto x = torch::arange(8).reshape({1,2,4});
+  auto y = model(x);
+
+  ASSERT_EQ(y.ndimension(), 3);
+  ASSERT_EQ(y.size(0), 1);
+  ASSERT_EQ(y.size(1), 2);
+  ASSERT_EQ(y.size(2), 8);
+  
+  auto options = torch::TensorOptions(torch::kFloat32);
+  auto target = torch::tensor({{2,1,0,1,2,3,2,1},{6,5,4,5,6,7,6,5}}, options);
+  ASSERT_TRUE(torch::allclose(y, target));
+}
+
+
+
 TEST_F(ModulesTest, MaxPool1d) {
   MaxPool1d model(MaxPool1dOptions(3).stride(2));
   auto x = torch::ones({1, 1, 5}, torch::requires_grad());

@@ -85,8 +85,14 @@ module_metadata_map = {
     'AdaptiveAvgPool1d': TorchNNModuleMetadata(),
     'AdaptiveAvgPool2d': TorchNNModuleMetadata(),
     'AdaptiveAvgPool3d': TorchNNModuleMetadata(),
-    'ReflectionPad1d': TorchNNModuleMetadata(),
-    'ReflectionPad2d': TorchNNModuleMetadata(),
+    'ReflectionPad1d': TorchNNModuleMetadata(
+        cpp_default_constructor_args="(1)",
+        num_attrs_recursive=1,
+    ),
+    'ReflectionPad2d': TorchNNModuleMetadata(
+        cpp_default_constructor_args="(1)",
+        num_attrs_recursive=1,
+    ),
     'ReplicationPad1d': TorchNNModuleMetadata(),
     'ReplicationPad2d': TorchNNModuleMetadata(),
     'ReplicationPad3d': TorchNNModuleMetadata(),

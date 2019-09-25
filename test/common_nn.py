@@ -1502,11 +1502,13 @@ new_module_tests = [
     dict(
         module_name='ReflectionPad1d',
         constructor_args=((1, 2),),
+        cpp_constructor_args='(torch::nn::ReflectionPad1dOptions({1,2}))',
         input_size=(2, 3, 8),
     ),
     dict(
         module_name='ReflectionPad2d',
         constructor_args=((1, 2, 3, 4),),
+        cpp_constructor_args='(torch::nn::ReflectionPad1dOptions({1,2,3,4}))',
         input_size=(2, 3, 8, 8),
     ),
     dict(
